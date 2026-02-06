@@ -1,4 +1,6 @@
-# Shepherd
+<p align="center">
+  <img src="shepherd.png" alt="Shepherd" width="400">
+</p>
 
 A lightweight fleet management server for [Nerves](https://nerves-project.org/) devices. Built with Phoenix, it provides secure device connectivity, real-time presence tracking, metrics ingestion, remote command execution, and over-the-air firmware updates.
 
