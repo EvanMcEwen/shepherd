@@ -66,7 +66,11 @@ defmodule Shepherd.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:x509, "~> 0.9.2"}
+      {:x509, "~> 0.9.2"},
+      {:ex_aws, "~> 2.6"},
+      {:ex_aws_s3, "~> 2.5"},
+      {:sweet_xml, "~> 0.7.5"},
+      {:hackney, "~> 1.20"}
     ]
   end
 

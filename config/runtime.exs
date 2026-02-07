@@ -23,6 +23,45 @@ end
 config :shepherd, ShepherdWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# S3 Configuration for all environments (runtime)
+# This allows using environment variables in dev/test as well as prod
+s3_endpoint = System.get_env("AWS_ENDPOINT_URL_S3")
+
+config :ex_aws,
+  access_key_id: System.get_env("AWS_ACCESS_KEY_ID") || "minioadmin",
+  secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY") || "minioadmin",
+  region: System.get_env("AWS_REGION") || "us-east-1"
+
+# Configure S3 endpoint - use custom endpoint if provided, otherwise use defaults per environment
+if s3_endpoint do
+  # Parse custom S3 endpoint (e.g., https://t3.storage.dev)
+  uri = URI.parse(s3_endpoint)
+
+  config :ex_aws, :s3,
+    scheme: "#{uri.scheme}://",
+    host: uri.host,
+    port: uri.port || if(uri.scheme == "https", do: 443, else: 80)
+else
+  # Default to MinIO for dev/test when no custom endpoint is set
+  unless config_env() == :prod do
+    config :ex_aws, :s3,
+      scheme: "http://",
+      host: "localhost",
+      port: 9000
+  end
+end
+
+# Set bucket name from env or use environment-specific default
+bucket_name =
+  System.get_env("FIRMWARE_S3_BUCKET") ||
+    case config_env() do
+      :prod -> "shepherd-firmware"
+      :test -> "shepherd-firmware-test"
+      :dev -> "shepherd-firmware-dev"
+    end
+
+config :shepherd, :firmware_s3_bucket, bucket_name
+
 # Fleet CA certificate for device authentication
 # In production, set via FLEET_CA_PEM environment variable
 if config_env() == :prod do
@@ -34,6 +73,7 @@ if config_env() == :prod do
       """
 
   config :shepherd, :fleet_ca_pem, fleet_ca_pem
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

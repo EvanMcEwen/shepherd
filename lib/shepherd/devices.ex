@@ -84,6 +84,45 @@ defmodule Shepherd.Devices do
   end
 
   @doc """
+  Sends a firmware update to a device with tracking.
+
+  This creates a firmware_update record for audit tracking and generates
+  a pre-signed download URL for the firmware. The update status will be
+  automatically tracked as the device progresses through the update.
+
+  Options:
+    - `:reboot` - Whether to reboot after applying (default: true)
+    - `:expires_in` - URL expiration time in seconds (default: 3600)
+
+  Returns `{:ok, firmware_update}` on success, `{:error, changeset}` on failure.
+
+  ## Example
+
+      firmware = Firmware.get_firmware!(1)
+      Devices.send_firmware_update(device, firmware)
+
+  """
+  def send_firmware_update(device, %Shepherd.Firmware.FirmwareVersion{} = firmware, opts \\ []) do
+    expires_in = Keyword.get(opts, :expires_in, 3600)
+
+    # Generate pre-signed download URL
+    {:ok, download_url} =
+      Shepherd.Firmware.S3.generate_presigned_download_url(firmware.s3_key, expires_in: expires_in)
+
+    case Shepherd.Firmware.create_firmware_update(%{
+      device_id: device.id,
+      firmware_id: firmware.id
+    }) do
+      {:ok, firmware_update} ->
+        send_update(device, download_url, opts)
+        {:ok, firmware_update}
+
+      {:error, _changeset} = error ->
+        error
+    end
+  end
+
+  @doc """
   Subscribes to update status events for a device.
 
   Messages received:
@@ -193,6 +232,50 @@ defmodule Shepherd.Devices do
   @doc "Deletes a group. Devices in the group have group_id set to nil."
   def delete_group(group) do
     Repo.delete(group)
+  end
+
+  @doc "Gets a group by id. Raises if not found."
+  def get_group!(id) do
+    Repo.get!(Group, id)
+  end
+
+  @doc """
+  Sets the current firmware for a group.
+  This marks which firmware version the group should be running.
+  """
+  def set_group_firmware(group, %Shepherd.Firmware.FirmwareVersion{} = firmware) do
+    group
+    |> Group.changeset(%{current_firmware_id: firmware.id})
+    |> Repo.update()
+  end
+
+  @doc """
+  Deploys firmware to all devices in a group.
+  Uses the group's current_firmware if no firmware is specified.
+
+  Returns {:ok, count} with number of devices updated, or {:error, reason}.
+  """
+  def deploy_firmware_to_group(group, firmware \\ nil, opts \\ [])
+
+  def deploy_firmware_to_group(%Group{current_firmware_id: nil}, nil, _opts) do
+    {:error, :no_firmware_assigned}
+  end
+
+  def deploy_firmware_to_group(%Group{} = group, nil, opts) do
+    group = Repo.preload(group, :current_firmware)
+    deploy_firmware_to_group(group, group.current_firmware, opts)
+  end
+
+  def deploy_firmware_to_group(%Group{} = group, %Shepherd.Firmware.FirmwareVersion{} = firmware, opts) do
+    devices = list_devices(%{group_id: group.id, status: :online})
+
+    results =
+      Enum.map(devices, fn device ->
+        send_firmware_update(device, firmware, opts)
+      end)
+
+    success_count = Enum.count(results, fn {status, _} -> status == :ok end)
+    {:ok, success_count}
   end
 
   # --- Private ---

@@ -42,3 +42,5 @@ config :phoenix,
 
 # Fleet CA certificate for device authentication in tests
 config :shepherd, :fleet_ca_pem, File.read!("priv/ca/fleet_ca.pem")
+
+# S3 configuration is in config/runtime.exs (evaluated at runtime)

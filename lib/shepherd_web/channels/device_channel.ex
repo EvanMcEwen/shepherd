@@ -82,6 +82,9 @@ defmodule ShepherdWeb.DeviceChannel do
 
     case Devices.update_device_info(device, attrs) do
       {:ok, device} ->
+        # Auto-update firmware record UUID if reported by device
+        maybe_update_firmware_uuid(payload)
+
         # Update presence metadata
         Presence.update(self(), Presence.topic(), device.serial, %{
           device_id: device.id,
@@ -117,6 +120,9 @@ defmodule ShepherdWeb.DeviceChannel do
 
     Logger.info("[DeviceChannel] Device #{device.serial} update status: #{status}")
 
+    # Update firmware_update status if there's an active update
+    update_firmware_update_status(device.id, status)
+
     # Broadcast to any listeners (future: LiveView UI)
     Phoenix.PubSub.broadcast(
       Shepherd.PubSub,
@@ -149,4 +155,61 @@ defmodule ShepherdWeb.DeviceChannel do
 
     :ok
   end
+
+  # --- Private ---
+
+  defp update_firmware_update_status(device_id, status_string) do
+    status_atom =
+      case status_string do
+        "pending" -> :pending
+        "downloading" -> :downloading
+        "applying" -> :applying
+        "complete" -> :complete
+        "failed" -> :failed
+        _ -> nil
+      end
+
+    if status_atom do
+      case Shepherd.Firmware.get_active_firmware_update(device_id) do
+        %Shepherd.Firmware.FirmwareUpdate{} = fu ->
+          Shepherd.Firmware.update_firmware_update_status(fu, %{status: status_atom})
+
+        nil ->
+          :ok
+      end
+    end
+  end
+
+  # Auto-update firmware record UUID when device reports it
+  defp maybe_update_firmware_uuid(%{
+         "firmware_uuid" => uuid,
+         "firmware_target" => target,
+         "firmware_version" => version
+       })
+       when not is_nil(uuid) and not is_nil(target) and not is_nil(version) do
+    # Find firmware records with matching target+version that don't have a UUID yet
+    case Shepherd.Firmware.find_firmware_without_uuid(target, version) do
+      [] ->
+        # No matching firmware found, nothing to update
+        :ok
+
+      firmwares ->
+        # Update all matching firmware records with the reported UUID
+        Enum.each(firmwares, fn firmware ->
+          case Shepherd.Firmware.update_firmware(firmware, %{uuid: uuid}) do
+            {:ok, _} ->
+              Logger.info(
+                "[DeviceChannel] Updated firmware #{firmware.id} (#{target}/#{firmware.application}/#{version}) with UUID: #{uuid}"
+              )
+
+            {:error, changeset} ->
+              Logger.warning(
+                "[DeviceChannel] Failed to update firmware #{firmware.id} UUID: #{inspect(changeset.errors)}"
+              )
+          end
+        end)
+    end
+  end
+
+  defp maybe_update_firmware_uuid(_payload), do: :ok
 end

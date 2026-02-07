@@ -91,4 +91,33 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
-config :shepherd, fleet_ca_pem: File.read!("priv/ca/fleet_ca.pem")
+config :shepherd,
+  fleet_ca_pem: (fn ->
+    case File.read("priv/ca/fleet_ca.pem") do
+      {:ok, content} ->
+        content
+
+      {:error, _reason} ->
+        IO.warn("""
+        Fleet CA certificate not found at priv/ca/fleet_ca.pem
+        Fleet functionality may not work properly without this certificate.
+
+        Generate the certificate by running:
+          mix fleet.gen.ca
+        """)
+
+        nil
+    end
+  end).()
+
+# S3 configuration is in config/runtime.exs (evaluated at runtime)
+# This allows using environment variables without recompiling
+#
+# To use real S3 in dev, set these environment variables:
+#   export AWS_ENDPOINT_URL_S3=https://t3.storage.dev
+#   export AWS_ACCESS_KEY_ID=your_key
+#   export AWS_SECRET_ACCESS_KEY=your_secret
+#   export AWS_REGION=auto
+#   export FIRMWARE_S3_BUCKET=your_bucket
+#
+# Without env vars, defaults to local MinIO (localhost:9000)
