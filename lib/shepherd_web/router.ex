@@ -17,7 +17,13 @@ defmodule ShepherdWeb.Router do
   scope "/", ShepherdWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", DashboardLive
+    live "/devices", DevicesLive
+    live "/devices/:id", DeviceDetailLive
+    live "/groups", GroupsLive
+    live "/firmware", FirmwareLive
+    live "/deployments", DeploymentsLive
+    live "/settings", SettingsLive
   end
 
   scope "/api", ShepherdWeb do
